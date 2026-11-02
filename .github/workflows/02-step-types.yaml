@@ -32,6 +32,103 @@ jobs:
       - run: print("Hello from an inline python script in a GitHub Action Workflow!")
         shell: python
 
+  # --- Step type 1c: more built-in shells on Linux ---
+  # How it works: the runner writes the `run:` body to a temp file and runs it
+  # with a command template, where {0} is that file's path.
+  say-hello-more-shells-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      # Explicit `shell: bash` → `bash --noprofile --norc -eo pipefail {0}`
+      #   -e          : stop at the first failing command
+      #   -o pipefail : a pipeline fails if ANY command in it fails, not just the last
+      # (When `shell:` is omitted on Linux, it's `bash -e {0}`, so no pipefail.)
+      # `run: |` is a YAML multi-line block: each line runs as a separate command.
+      - name: Bash (explicit, strict mode)
+        shell: bash
+        run: |
+          echo "Hello from bash $BASH_VERSION"
+          echo "Running on: $RUNNER_OS"
+
+      # `shell: sh` → `sh -e {0}`. Plain POSIX shell (dash on Ubuntu).
+      # No bash-only features (arrays, [[ ]], etc.). Useful for portable scripts
+      # or minimal container images that don't ship bash.
+      - name: POSIX sh
+        shell: sh
+        run: echo "Hello from POSIX sh"
+
+      # `shell: pwsh` → `pwsh -command ". '{0}'"`. PowerShell 7 (cross-platform),
+      # preinstalled on Linux, macOS and Windows runners. Works with objects,
+      # not just text, and lets one script run unchanged on every OS.
+      # $ErrorActionPreference = 'stop' is prepended so errors fail the step.
+      - name: PowerShell Core (pwsh)
+        shell: pwsh
+        run: |
+          Write-Output "Hello from PowerShell $($PSVersionTable.PSVersion)"
+          Get-Date
+
+      # `shell: python` → `python {0}`. Runs the body as a Python script.
+      - name: Python
+        shell: python
+        run: |
+          import platform
+          print(f"Hello from Python {platform.python_version()}")
+
+      # Custom shell: any command that contains {0}. Here the body is run by Node.js
+      # (preinstalled on GitHub runners). The step's file is passed as {0}.
+      - name: Custom shell - Node.js
+        shell: node {0}
+        run: console.log(`Hello from Node.js ${process.version}`);
+
+      # Custom shell with Perl, also preinstalled on Ubuntu runners.
+      - name: Custom shell - Perl
+        shell: perl {0}
+        run: print "Hello from Perl $^V\n";
+
+  # --- Step type 1d: Windows-only shells ---
+  say-hello-shells-windows:
+    runs-on: windows-2025
+    steps:
+      # On Windows, omitting `shell:` defaults to pwsh (PowerShell 7).
+      - name: Default shell on Windows (pwsh)
+        run: Write-Output "Hello from the default Windows shell"
+
+      # `shell: powershell` → Windows PowerShell 5.1 (the legacy built-in one).
+      # Use only if a script relies on Windows-only modules that pwsh lacks.
+      - name: Windows PowerShell 5.1
+        shell: powershell
+        run: Write-Output "Hello from Windows PowerShell $($PSVersionTable.PSVersion)"
+
+      # `shell: cmd` → classic Command Prompt (batch syntax).
+      # Note: cmd does NOT stop at the first failing line; only the exit code
+      # of the last command decides if the step fails.
+      - name: Command Prompt (cmd)
+        shell: cmd
+        run: |
+          echo Hello from cmd
+          ver
+
+      # bash also works on Windows (Git Bash is preinstalled).
+      - name: Bash on Windows (Git Bash)
+        shell: bash
+        run: echo "Hello from bash on $RUNNER_OS"
+
+  # --- Setting a default shell ---
+  # `defaults.run.shell` sets the shell for every `run:` step in the job,
+  # so steps don't need to repeat `shell:`. It can also go at workflow level
+  # (top-level `defaults:`) to apply to all jobs. A step's own `shell:` still wins.
+  say-hello-default-shell:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Uses job default (pwsh)
+        run: Write-Output "Hello from the job's default shell"
+
+      - name: Overrides default with bash
+        shell: bash
+        run: echo "Hello from bash, overriding the job default"
+
   # --- Step type 2: reusable action ---
   say-hello-action:
     runs-on: ubuntu-24.04
