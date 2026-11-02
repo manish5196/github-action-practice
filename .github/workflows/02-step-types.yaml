@@ -1,0 +1,50 @@
+# Workflow display name — shown in the repo's "Actions" tab.
+name: Step Types
+
+# Trigger: manual only. Run from Actions → Step Types → "Run workflow",
+# or from the CLI: gh workflow run "Step Types"
+on:
+  workflow_dispatch:
+
+# This workflow demonstrates the two kinds of steps:
+#   1. `run:`  — execute a script inline (any shell: bash, python, pwsh, ...)
+#   2. `uses:` — call a reusable, prebuilt action (e.g. from the Marketplace)
+# The three jobs have no `needs:` between them, so they run in parallel
+# on three separate runners.
+jobs:
+  # --- Step type 1a: inline script, default shell ---
+  say-hello-inline-bash:
+    # Pinned runner image (ubuntu-24.04) instead of ubuntu-latest:
+    # the job won't change behaviour when GitHub moves "latest" to a newer OS.
+    runs-on: ubuntu-24.04
+    steps:
+      # No `name:` given, so the log shows the command itself as the step label.
+      # No `shell:` given, so on Linux it defaults to bash.
+      - run: echo "Hello from an inline bash script in a GitHub Action Workflow!"
+
+  # --- Step type 1b: inline script, custom shell ---
+  say-hello-inline-python:
+    runs-on: ubuntu-24.04
+    steps:
+      # `shell: python` makes the runner execute the `run:` body as Python code
+      # instead of bash. Python comes preinstalled on GitHub's Ubuntu runners.
+      # Other built-in shells: bash, sh, pwsh, powershell, cmd (Windows).
+      - run: print("Hello from an inline python script in a GitHub Action Workflow!")
+        shell: python
+
+  # --- Step type 2: reusable action ---
+  say-hello-action:
+    runs-on: ubuntu-24.04
+    steps:
+      # `uses:` format is <owner>/<repo>@<ref>. This one is GitHub's sample
+      # JavaScript action: https://github.com/actions/hello-world-javascript-action
+      #
+      # The ref is pinned to a full commit SHA (with the tag as a comment) rather than
+      # a tag like @v1. Tags can be moved or rewritten by the action's owner, so a
+      # SHA guarantees the exact code you reviewed is what runs (supply-chain safety).
+      - uses: actions/hello-world-javascript-action@v1.1
+        # - uses: actions/hello-world-javascript-action@v1 # This would work, but it would be less stable and less secure:
+        # `with:` passes inputs to the action. The available inputs are declared
+        # in the action's action.yml; this action takes `who-to-greet`.
+        with:
+          who-to-greet: "from an action in the GitHub Action marketplace! 👋"
