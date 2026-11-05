@@ -1,0 +1,284 @@
+# =============================================================================
+# Workflow: Triggers and Filters (06-triggers-and-filters.yaml)
+# -----------------------------------------------------------------------------
+# Purpose:
+#   Demonstrates WHEN a workflow runs (triggers / events) and how to NARROW
+#   those triggers down (filters) so the workflow only runs when it matters.
+#
+# Docs:
+#   Events : https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows
+#   Syntax : https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions#on
+#
+# Key concepts:
+#   - Trigger (event) : Something that happens on GitHub (a push, a PR, a cron
+#                       tick, a button click...) that starts the workflow.
+#                       Declared under the top-level `on:` key.
+#   - Activity types  : Many events have sub-types (e.g. a pull_request can be
+#                       `opened`, `closed`, `labeled`...). Use `types:` to pick
+#                       which ones you care about. If omitted, a default set is
+#                       used (for pull_request: opened, synchronize, reopened).
+#   - Filters         : Narrow an event by WHERE it happened:
+#                         branches / branches-ignore -> which branch
+#                         tags     / tags-ignore     -> which tag (push only)
+#                         paths    / paths-ignore    -> which files changed
+#
+# How filters combine:
+#   - Different events are OR'ed   : a push OR a PR OR a manual run starts it.
+#   - Filters inside ONE event are AND'ed: with both `branches` and `paths`,
+#     the branch must match AND at least one changed file must match.
+#   - Within one filter list, patterns are evaluated top to bottom; a later
+#     `!pattern` excludes what an earlier pattern included (and vice versa).
+#
+# Rules / gotchas:
+#   - You cannot use `branches` AND `branches-ignore` for the same event
+#     (same for `tags`/`tags-ignore` and `paths`/`paths-ignore`).
+#     Use `branches` with `!negated` patterns if you need both.
+#   - For `push`, if you specify only `branches` (no `tags`), tag pushes
+#     will NOT trigger the workflow, and vice versa.
+#   - `paths` filters are NOT evaluated for tag pushes.
+#   - `branches` on `pull_request` matches the BASE (target) branch,
+#     not the head (source) branch of the PR.
+#   - `schedule` and `workflow_dispatch` only work if this file exists on the
+#     DEFAULT branch (main).
+#   - If changes are pushed with "[skip ci]" (or "[ci skip]", "[no ci]",
+#     "[skip actions]", "[actions skip]") in the commit message, push and
+#     pull_request workflows are skipped.
+#
+# Glob pattern cheat sheet:
+#   https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions#filter-pattern-cheat-sheet
+#     *       matches zero or more chars, but NOT "/"   e.g. "feature/*"
+#     **      matches zero or more chars, INCLUDING "/" e.g. "docs/**"
+#     ?       matches zero or one of the preceding char
+#     +       matches one or more of the preceding char
+#     [0-9]   matches one char from the set/range
+#     !       at the start of a pattern negates it (exclude)
+# =============================================================================
+
+# Display name of the workflow shown in the GitHub "Actions" tab.
+name: Triggers and Filters (06-triggers-and-filters.yaml)
+
+on:
+  # ---------------------------------------------------------------------------
+  # 1) push - runs when commits or tags are pushed to the repository.
+  # https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#push
+  # ---------------------------------------------------------------------------
+  push:
+    branches:
+      # Any branch directly under "example-branch/", e.g. example-branch/foo
+      # (NOT example-branch/foo/bar - use "example-branch/**" for that).
+      - "example-branch/*"
+      # Release branches like release/v1, release/v2 ...
+      - "release/v[0-9]+"
+      # ...but exclude any release branch ending with "-beta".
+      # Negations must come AFTER the pattern they refine.
+      - "!release/**-beta"
+    tags:
+      # Semantic version tags such as v1.0.0, v2.13.4
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+  # Alternative push filter styles (only ONE of each pair is allowed per event):
+  #
+  # push:
+  #   branches-ignore:          # run on every branch EXCEPT these
+  #     - "dependabot/**"
+  #     - "experimental/*"
+  #   paths-ignore:             # skip if ONLY these files changed
+  #     - "**.md"
+  #     - "docs/**"
+
+  # ---------------------------------------------------------------------------
+  # 2) pull_request - runs on activity on a pull request.
+  # https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#pull_request
+  # ---------------------------------------------------------------------------
+  pull_request:
+    # Activity types. These three are the defaults (same as omitting `types`).
+    #   opened      - PR created
+    #   synchronize - new commits pushed to the PR's head branch
+    #   reopened    - a closed PR is reopened
+    # Other useful types: closed, edited, labeled, unlabeled,
+    #   ready_for_review, converted_to_draft, assigned, review_requested ...
+    types:
+      - opened
+      - synchronize
+      - reopened
+    # Only PRs whose TARGET (base) branch is main.
+    branches:
+      - main
+    # AND only if at least one changed file matches these paths.
+    paths:
+      # Include markdown files in this folder
+      - "03-core-features/filters/*.md"
+      # Exclude txt files (a negated pattern removes earlier matches)
+      - "!03-core-features/filters/*.txt"
+
+  # Tip: to run something when a PR is MERGED, listen for `closed` and check
+  # `github.event.pull_request.merged == true` in a job `if:` (see below).
+  #
+  # pull_request_target: same as pull_request, but runs in the context of the
+  # BASE repo with write permissions/secrets - use with great care on forks.
+
+  # ---------------------------------------------------------------------------
+  # 3) workflow_dispatch - manual trigger ("Run workflow" button, gh CLI, API).
+  # https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#workflow_dispatch
+  #   CLI example:
+  #     gh workflow run 06-triggers-and-filters.yaml -f log-level=debug -f dry-run=false
+  # ---------------------------------------------------------------------------
+  workflow_dispatch:
+    # Inputs render as a form in the GitHub UI. Read them with
+    # `inputs.<name>` (or `github.event.inputs.<name>`, always strings).
+    inputs:
+      log-level:
+        description: "Log level"
+        type: choice
+        required: true
+        default: info
+        options:
+          - info
+          - warning
+          - debug
+      dry-run:
+        description: "Run without making changes"
+        type: boolean
+        default: true
+      message:
+        description: "Free-text message to print"
+        type: string
+        required: false
+        default: "Hello from a manual run"
+
+  # ---------------------------------------------------------------------------
+  # 4) issues / issue_comment - react to issue activity (great for triage bots).
+  # https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows#issues
+  # ---------------------------------------------------------------------------
+  issues:
+    types:
+      - opened
+      - labeled
+
+  # ---------------------------------------------------------------------------
+  # More trigger examples (commented out so they don't fire unexpectedly).
+  # Uncomment one to try it out.
+  # ---------------------------------------------------------------------------
+
+  # 5) schedule - cron syntax, always in UTC. Shortest interval: every 5 min.
+  #    Runs only on the default branch; may be delayed under high load.
+  #    Fields: minute hour day-of-month month day-of-week
+  #    Helper: https://crontab.guru
+  # schedule:
+  #   - cron: "0 0 * * *"      # every day at midnight UTC
+  #   - cron: "30 6 * * 1-5"   # 06:30 UTC, Monday to Friday
+  #   - cron: "*/15 * * * *"   # every 15 minutes
+
+  # 6) release - when a GitHub release is published/created/edited.
+  # release:
+  #   types: [published]
+
+  # 7) workflow_run - run after ANOTHER workflow completes (chaining workflows).
+  #    `workflows` refers to the other workflow's `name:`.
+  # workflow_run:
+  #   workflows: ["Job Dependencies (05-job-dependency.yaml)"]
+  #   types: [completed]
+  #   branches: [main]
+
+  # 8) repository_dispatch - triggered from outside GitHub via the REST API:
+  #    curl -X POST -H "Authorization: Bearer <TOKEN>" \
+  #      https://api.github.com/repos/<owner>/<repo>/dispatches \
+  #      -d '{"event_type":"deploy","client_payload":{"env":"staging"}}'
+  # repository_dispatch:
+  #   types: [deploy]
+
+  # 9) workflow_call - makes this workflow REUSABLE, callable from other
+  #    workflows via `uses: ./.github/workflows/<file>.yaml`.
+  # workflow_call:
+  #   inputs:
+  #     environment:
+  #       type: string
+  #       required: true
+
+  # 10) Other common events: create / delete (branch or tag created/deleted),
+  #     fork, watch (repo starred), pull_request_review, discussion,
+  #     merge_group (merge queue), page_build, deployment_status ...
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # echo-event: Runs for EVERY trigger above. Prints which event fired and the
+  # full event payload - the best way to learn what data each event provides.
+  # ---------------------------------------------------------------------------
+  echo-event:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Show basic trigger context
+        run: |
+          echo "Event name : ${{ github.event_name }}"
+          echo "Ref        : ${{ github.ref }}"        # e.g. refs/heads/main, refs/tags/v1.0.0, refs/pull/5/merge
+          echo "Ref type   : ${{ github.ref_type }}"   # branch or tag
+          echo "Ref name   : ${{ github.ref_name }}"
+          echo "SHA        : ${{ github.sha }}"
+          echo "Actor      : ${{ github.actor }}"
+
+      - name: Dump full event JSON
+        run: |
+          echo "=== $GITHUB_EVENT_NAME payload ==="
+          cat "$GITHUB_EVENT_PATH"
+
+  # ---------------------------------------------------------------------------
+  # manual-run: Only runs for workflow_dispatch. Shows how to read inputs.
+  # Job-level `if:` is a second layer of filtering, AFTER the workflow started.
+  # A job whose `if:` is false shows as "skipped" (not failed).
+  # ---------------------------------------------------------------------------
+  manual-run:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Print inputs
+        # Pass user-provided values through `env` instead of inlining
+        # `${{ inputs.message }}` in the script - this prevents script
+        # injection if someone types shell code into the input.
+        env:
+          LOG_LEVEL: ${{ inputs.log-level }}
+          DRY_RUN: ${{ inputs.dry-run }}
+          MESSAGE: ${{ inputs.message }}
+        run: |
+          echo "Log level : $LOG_LEVEL"
+          echo "Dry run   : $DRY_RUN"
+          echo "Message   : $MESSAGE"
+
+      - name: Only when dry-run is false
+        # Boolean inputs can be compared directly via `inputs.*`.
+        if: ${{ !inputs.dry-run }}
+        run: echo "This is a REAL run - changes would be applied here."
+
+  # ---------------------------------------------------------------------------
+  # tag-release: Only runs when a version tag (v1.2.3) was pushed.
+  # ---------------------------------------------------------------------------
+  tag-release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "Building release for tag ${{ github.ref_name }}"
+
+  # ---------------------------------------------------------------------------
+  # pr-info: Only runs for pull_request events.
+  # ---------------------------------------------------------------------------
+  pr-info:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Show PR details
+        env:
+          # PR titles are user-controlled -> pass via env (injection-safe).
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "PR #${{ github.event.pull_request.number }} (${{ github.event.action }})"
+          echo "Title : $PR_TITLE"
+          echo "From  : ${{ github.head_ref }}  ->  Into : ${{ github.base_ref }}"
+
+  # ---------------------------------------------------------------------------
+  # bug-triage: Only runs when an issue gets the "bug" label.
+  # Demonstrates filtering on the event's activity type AND payload data.
+  # ---------------------------------------------------------------------------
+  bug-triage:
+    if: github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'bug'
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "Issue #${{ github.event.issue.number }} was labeled as a bug."

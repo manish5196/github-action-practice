@@ -34,7 +34,7 @@
 # =============================================================================
 
 # Display name of the workflow shown in the GitHub "Actions" tab.
-name: Workflows, Jobs, and Steps
+name: Job Dependencies (05-job-dependency.yaml)
 
 # Trigger(s) for the workflow.
 on:
