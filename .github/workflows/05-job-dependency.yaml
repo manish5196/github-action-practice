@@ -1,0 +1,99 @@
+# =============================================================================
+# Workflow: Job Dependencies (05-job-dependency.yaml)
+# -----------------------------------------------------------------------------
+# Purpose:
+#   Demonstrates how GitHub Actions organizes work into WORKFLOWS -> JOBS -> STEPS,
+#   and how jobs can run in parallel or depend on each other using `needs`.
+#
+# Key concepts:
+#   - Workflow : The whole automated process defined in this YAML file.
+#   - Job      : A group of steps that runs on its own fresh runner (VM/container).
+#                By default, all jobs in a workflow start IN PARALLEL.
+#   - Step     : A single command (`run`) or action (`uses`) inside a job.
+#                Steps in a job run SEQUENTIALLY on the SAME runner, so they
+#                share the filesystem and environment.
+#   - needs    : Declares that a job must wait for other job(s) to finish
+#                successfully before it starts. If any required job fails or is
+#                skipped, the dependent job is skipped as well (unless overridden
+#                with an `if:` condition such as `if: always()`).
+#
+# Execution graph (DAG - Directed Acyclic Graph) of this workflow:
+#
+#        job-1 ──┐
+#                ├──> job-3 ──┐
+#        job-2 ──┤            ├──> job-4
+#                └────────────┘
+#
+#   1. job-1 and job-2 start at the same time (no `needs`, so they run in parallel).
+#   2. job-3 starts only after BOTH job-1 and job-2 have succeeded.
+#   3. job-4 starts only after BOTH job-2 and job-3 have succeeded.
+#      (job-2 is listed explicitly, although it is already implied via job-3.)
+#
+#   "Acyclic" means dependencies can never loop back (e.g. job-1 needs job-4
+#   while job-4 indirectly needs job-1) - GitHub rejects such a workflow.
+# =============================================================================
+
+# Display name of the workflow shown in the GitHub "Actions" tab.
+name: Workflows, Jobs, and Steps
+
+# Trigger(s) for the workflow.
+on:
+  # `workflow_dispatch` allows running this workflow manually from the
+  # GitHub UI ("Run workflow" button), the GitHub CLI, or the REST API.
+  workflow_dispatch:
+
+# All jobs belonging to this workflow.
+jobs:
+  # ---------------------------------------------------------------------------
+  # job-1: Has no dependencies -> starts immediately, in parallel with job-2.
+  # Shows that a job is made of multiple steps executed one after another.
+  # ---------------------------------------------------------------------------
+  job-1:
+    # The runner (virtual machine image) this job executes on.
+    # Each job gets its own fresh runner; nothing is shared between jobs
+    # unless explicitly passed (via artifacts, outputs, or caches).
+    runs-on: ubuntu-24.04
+    steps:
+      # Each `run` step executes a shell command (bash by default on Linux).
+      # These four steps run in order; if one fails, the remaining ones are skipped.
+      - run: echo "A job consists of"
+      - run: echo "one or more steps"
+      - run: echo "which run sequentially"
+      - run: echo "within the same compute environment"
+
+  # ---------------------------------------------------------------------------
+  # job-2: Also has no dependencies -> runs in parallel with job-1
+  # on a separate runner.
+  # ---------------------------------------------------------------------------
+  job-2:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "Multiple jobs can run in parallel"
+
+  # ---------------------------------------------------------------------------
+  # job-3: Depends on job-1 AND job-2.
+  # It waits until both have completed successfully before starting
+  # (a "fan-in" / join point in the graph).
+  # ---------------------------------------------------------------------------
+  job-3:
+    runs-on: ubuntu-24.04
+    # `needs` accepts a single job id (needs: job-1) or a list of job ids.
+    needs:
+      - job-1
+      - job-2
+    steps:
+      - run: echo "They can also depend on one another..."
+
+  # ---------------------------------------------------------------------------
+  # job-4: Depends on job-2 AND job-3, so it is the last job to run.
+  # Because job-3 already waits for job-2, listing job-2 here doesn't change
+  # the order, but it does give job-4 direct access to job-2's results
+  # (e.g. `needs.job-2.outputs.*` and `needs.job-2.result`).
+  # ---------------------------------------------------------------------------
+  job-4:
+    runs-on: ubuntu-24.04
+    needs:
+      - job-2
+      - job-3
+    steps:
+      - run: echo "...to form a directed acyclic graph (DAG)"
