@@ -1,0 +1,49 @@
+# Workflow display name — shown in the repo's "Actions" tab.
+name: Execute Separate Python Script
+
+# Trigger: manual only. Run from Actions → Execute Separate Python Script → "Run workflow",
+# or from the CLI: gh workflow run "Execute Separate Python Script"
+on:
+  workflow_dispatch:
+
+# Least privilege: this job only reads the repo, so restrict the GITHUB_TOKEN
+# to read access instead of the (possibly broader) repository default.
+permissions:
+  contents: read
+
+# This workflow shows how to run a script that lives in the repo, rather than
+# inlining code in `run:` (see 02-step-types.yaml for inline scripts).
+# Unlike inline steps, a file in the repo is NOT on the runner by default —
+# the runner starts empty, so the code must be checked out first.
+jobs:
+  execute-separate-python-script:
+    # Pinned runner image (ubuntu-24.04) instead of ubuntu-latest, so the job
+    # doesn't change behaviour when GitHub moves "latest" to a newer OS.
+    runs-on: ubuntu-24.04
+    # Fail fast instead of hanging for the 6-hour default if something gets stuck.
+    timeout-minutes: 10
+
+    steps:
+      # Clones the repo into the runner's working directory ($GITHUB_WORKSPACE).
+      # Without this step, scripts/hello.py and requirements.txt don't exist.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Installs a specific Python and puts it on PATH. The runner already has a
+      # system Python, but pinning the version makes runs reproducible.
+      # The version is quoted on purpose: unquoted YAML reads 3.10 as the number 3.1.
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # `python -m pip` guarantees pip belongs to the Python set up above.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      # Runs the script from the repo. The path is relative to $GITHUB_WORKSPACE
+      # (the repo root), which is the default working directory for `run:` steps.
+      - name: Execute separate Python script
+        run: python scripts/hello.py
