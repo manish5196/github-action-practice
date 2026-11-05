@@ -1,0 +1,14 @@
+{
+  "name": "github-action-practice",
+  "version": "1.0.0",
+  "description": "Practice workflows and scripts for GitHub Actions",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/hello.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "author": "Manish Dubey",
+  "license": "ISC"
+}

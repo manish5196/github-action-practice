@@ -1,0 +1,53 @@
+# Workflow display name — shown in the repo's "Actions" tab.
+name: Execute Separate Node.js Script
+
+# Trigger: manual only. Run from Actions → Execute Separate Node.js Script → "Run workflow",
+# or from the CLI: gh workflow run "Execute Separate Node.js Script"
+on:
+  workflow_dispatch:
+
+# Least privilege: this job only reads the repo, so restrict the GITHUB_TOKEN
+# to read access instead of the (possibly broader) repository default.
+permissions:
+  contents: read
+
+# This workflow shows how to run a Node.js script that lives in the repo, rather
+# than inlining code in `run:` (see 02-step-types.yaml for inline scripts).
+# It is the Node.js counterpart of 03-python-script.yaml.
+# Unlike inline steps, a file in the repo is NOT on the runner by default —
+# the runner starts empty, so the code must be checked out first.
+jobs:
+  execute-separate-node-script:
+    # Pinned runner image (ubuntu-24.04) instead of ubuntu-latest, so the job
+    # doesn't change behaviour when GitHub moves "latest" to a newer OS.
+    runs-on: ubuntu-24.04
+    # Fail fast instead of hanging for the 6-hour default if something gets stuck.
+    timeout-minutes: 10
+
+    steps:
+      # Clones the repo into the runner's working directory ($GITHUB_WORKSPACE).
+      # Without this step, scripts/hello.js doesn't exist on the runner.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Installs a specific Node.js version and puts `node` and `npm` on PATH.
+      # The runner already ships with a Node.js, but pinning the version makes
+      # runs reproducible. Quoted so YAML treats it as a string, not a number
+      # (matters for versions like '20.10', which unquoted would become 20.1).
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # Installs the packages from package-lock.json into node_modules/.
+      # `npm ci` (not `npm install`) installs exactly what the lockfile says
+      # and fails if package.json and the lockfile disagree — what you want in CI.
+      # hello.js only uses built-in Node APIs today, so this installs nothing yet.
+      - name: Install dependencies
+        run: npm ci
+
+      # Runs the script with Node. The path is relative to the repo root,
+      # because steps start in $GITHUB_WORKSPACE (where checkout put the code).
+      # A non-zero exit code from the script fails this step and the job.
+      - name: Execute Node.js script
+        run: node scripts/hello.js
