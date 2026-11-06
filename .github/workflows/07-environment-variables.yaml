@@ -1,0 +1,276 @@
+# =============================================================================
+# Workflow: Environment Variables (07-environment-variables.yaml)
+# -----------------------------------------------------------------------------
+# Purpose:
+#   Demonstrates how to DEFINE, SCOPE, OVERRIDE, READ and SHARE environment
+#   variables in GitHub Actions - both static ones you declare in YAML and
+#   dynamic ones you create while the workflow is running.
+#
+# Docs:
+#   Variables : https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables
+#   Defaults  : https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables#default-environment-variables
+#   GITHUB_ENV: https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#setting-an-environment-variable
+#   Contexts  : https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/accessing-contextual-information-about-workflow-runs#env-context
+#
+# Key concepts:
+#   - Scope       : `env:` can be declared at 3 levels. A variable is visible
+#                   in the level it is declared in and everything BELOW it:
+#                     workflow `env:` -> every job and every step
+#                     job      `env:` -> every step of THAT job only
+#                     step     `env:` -> THAT step only
+#   - Precedence  : The most specific scope wins. If the same name is defined
+#                   at several levels: step > job > workflow.
+#   - Isolation   : Every job runs on a fresh runner (a new machine), so a
+#                   variable set in one job is NEVER automatically visible in
+#                   another job. Use job `outputs` to pass values between jobs.
+#
+# Two ways to read a variable:
+#   1) Shell syntax   : $MY_VAR  (or ${MY_VAR})
+#        - Evaluated by the SHELL on the runner, at run time.
+#        - Works only inside `run:` scripts.
+#        - On Windows PowerShell use $env:MY_VAR, in cmd use %MY_VAR%.
+#   2) Context syntax : ${{ env.MY_VAR }}
+#        - Evaluated by GITHUB before the step is sent to the runner.
+#        - Works almost anywhere in YAML: `if:`, `with:`, `name:`, `run:`...
+#        - Does NOT see variables created via $GITHUB_ENV in the SAME step.
+#
+# Kinds of variables (don't mix them up):
+#   - env.*      : Declared with `env:` in YAML or via $GITHUB_ENV (this file).
+#   - Default    : Set automatically by GitHub on every runner, e.g. GITHUB_SHA,
+#                  GITHUB_REF_NAME, RUNNER_OS. Read-only - always available.
+#   - vars.*     : "Configuration variables" stored in repo/org/environment
+#                  settings (Settings > Secrets and variables > Actions >
+#                  Variables). NOT exported automatically - map them via env:.
+#   - secrets.*  : Like vars.*, but encrypted and masked (***) in logs.
+#
+# Rules / gotchas:
+#   - Names are case-sensitive. Convention: UPPER_SNAKE_CASE.
+#   - Do not create names starting with GITHUB_ or RUNNER_ - they are reserved.
+#   - All values are STRINGS. `true` / `1` become "true" / "1".
+#   - Writing to $GITHUB_ENV only affects LATER steps of the same job,
+#     never the step that wrote it.
+#   - A plain `export MY_VAR=x` in one step is lost in the next step -
+#     every `run:` is a brand-new shell process.
+#   - Unset variables expand to an empty string in bash. Use ${VAR:-default}
+#     to print a fallback, as done below with "<UNSET>".
+# =============================================================================
+
+# Display name of the workflow shown in the GitHub "Actions" tab.
+name: Environment Variables (07-environment-variables.yaml)
+
+on:
+  # Manual trigger only - click "Run workflow" or:
+  #   gh workflow run 07-environment-variables.yaml
+  workflow_dispatch:
+
+# -----------------------------------------------------------------------------
+# WORKFLOW-level env: visible to every job and every step below.
+# -----------------------------------------------------------------------------
+env:
+  WORKFLOW_VAR: I_AM_WORKFLOW_SCOPED
+  # Same name re-declared at job and step level to show precedence.
+  OVERRIDE_ME: from-workflow
+  # Values can reference contexts. Evaluated once when the job starts.
+  BUILD_LABEL: build-${{ github.run_number }}
+
+jobs:
+  # ===========================================================================
+  # Example 1: Scopes (workflow -> job -> step) and visibility.
+  # ===========================================================================
+  job-1:
+    runs-on: ubuntu-24.04
+    # JOB-level env: visible to every step of job-1 only.
+    env:
+      JOB_VAR: I_AM_JOB_1_SCOPED
+    steps:
+      - name: Inspect scopes job 1 step 1
+        # STEP-level env: visible to this step only.
+        env:
+          STEP_VAR: I_AM_STEP_SCOPED
+        run: |
+          echo "WORKFLOW_VAR: $WORKFLOW_VAR"   # visible
+          echo "JOB_VAR:      $JOB_VAR"        # visible
+          echo "STEP_VAR:     $STEP_VAR"       # visible only here
+
+      - name: Inspect scopes job 1 step 2
+        run: |
+          echo "WORKFLOW_VAR: $WORKFLOW_VAR"         # visible
+          echo "JOB_VAR:      $JOB_VAR"              # visible
+          echo "STEP_VAR:     ${STEP_VAR:-<UNSET>}"  # not set here
+
+  job-2:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Inspect scopes job 2 step 1
+        run: |
+          echo "WORKFLOW_VAR: $WORKFLOW_VAR"         # still visible (workflow scope)
+          echo "JOB_VAR:      ${JOB_VAR:-<UNSET>}"   # not set: belongs to job-1
+          echo "STEP_VAR:     ${STEP_VAR:-<UNSET>}"  # not set: belongs to a job-1 step
+
+  # ===========================================================================
+  # Example 2: Precedence - the most specific definition wins.
+  #   step > job > workflow
+  # ===========================================================================
+  precedence:
+    runs-on: ubuntu-24.04
+    env:
+      OVERRIDE_ME: from-job
+    steps:
+      - name: Job overrides workflow
+        run: echo "OVERRIDE_ME = $OVERRIDE_ME"    # -> from-job
+
+      - name: Step overrides job
+        env:
+          OVERRIDE_ME: from-step
+        run: echo "OVERRIDE_ME = $OVERRIDE_ME"    # -> from-step
+
+      - name: Back to the job value
+        run: echo "OVERRIDE_ME = $OVERRIDE_ME"    # -> from-job
+
+  # ===========================================================================
+  # Example 3: Shell syntax vs context syntax, and env in `if:` conditions.
+  # ===========================================================================
+  syntax:
+    runs-on: ubuntu-24.04
+    env:
+      GREETING: Hello
+      FEATURE_FLAG: "true"     # quoted: values are always strings anyway
+    steps:
+      # ${{ env.X }} works in `name:` because GitHub evaluates it first.
+      - name: Greeting is "${{ env.GREETING }}"
+        run: |
+          # Shell syntax: substituted by bash at run time.
+          echo "Shell:   $GREETING from $BUILD_LABEL"
+          # Context syntax: GitHub replaces it BEFORE bash sees the script.
+          # The runner actually executes: echo "Context: Hello"
+          echo "Context: ${{ env.GREETING }}"
+
+      # `if:` cannot use $VAR (no shell yet) - use the env context.
+      - name: Runs only when FEATURE_FLAG is "true"
+        if: env.FEATURE_FLAG == 'true'
+        run: echo "Feature is ON"
+
+      - name: Skipped because the comparison is false
+        if: env.FEATURE_FLAG == 'false'
+        run: echo "You will not see this"
+
+  # ===========================================================================
+  # Example 4: Default variables provided by GitHub on every runner.
+  # Full list: https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables#default-environment-variables
+  # ===========================================================================
+  defaults:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Print some default variables
+        run: |
+          echo "GITHUB_REPOSITORY: $GITHUB_REPOSITORY"   # owner/repo
+          echo "GITHUB_REF_NAME:   $GITHUB_REF_NAME"     # branch or tag name
+          echo "GITHUB_SHA:        $GITHUB_SHA"          # commit SHA
+          echo "GITHUB_ACTOR:      $GITHUB_ACTOR"        # who triggered the run
+          echo "GITHUB_EVENT_NAME: $GITHUB_EVENT_NAME"   # e.g. workflow_dispatch
+          echo "GITHUB_RUN_ID:     $GITHUB_RUN_ID"
+          echo "GITHUB_WORKSPACE:  $GITHUB_WORKSPACE"    # checkout directory
+          echo "RUNNER_OS:         $RUNNER_OS"           # Linux / Windows / macOS
+          echo "RUNNER_TEMP:       $RUNNER_TEMP"         # temp dir, emptied per job
+          # Most defaults also exist in the github / runner contexts:
+          echo "Same SHA via context: ${{ github.sha }}"
+
+  # ===========================================================================
+  # Example 5: Dynamic variables with $GITHUB_ENV (set at run time).
+  # Write NAME=value lines to the file $GITHUB_ENV; later steps in the SAME
+  # job see them as normal environment variables.
+  # ===========================================================================
+  dynamic:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create variables at run time
+        run: |
+          # Simple value
+          echo "TODAY=$(date +%Y-%m-%d)" >> "$GITHUB_ENV"
+          # Value computed from another variable
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+          # Multi-line value: use a delimiter (heredoc style).
+          {
+            echo "RELEASE_NOTES<<EOF"
+            echo "Line 1: fixed bugs"
+            echo "Line 2: added features"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+          # NOT available yet in this same step:
+          echo "TODAY in same step: ${TODAY:-<UNSET>}"
+
+          # `export` only lives as long as this shell - lost after the step.
+          export TEMP_ONLY=gone-after-this-step
+
+      - name: Use the variables in a later step
+        run: |
+          echo "TODAY:      $TODAY"
+          echo "SHORT_SHA:  $SHORT_SHA"
+          echo "TEMP_ONLY:  ${TEMP_ONLY:-<UNSET>}"   # export did not survive
+          echo "RELEASE_NOTES:"
+          echo "$RELEASE_NOTES"
+          # Also readable via the env context from now on:
+          echo "Via context: ${{ env.SHORT_SHA }}"
+
+      - name: Overwrite a variable dynamically
+        run: echo "SHORT_SHA=overwritten" >> "$GITHUB_ENV"
+
+      - name: See the new value
+        run: |
+          echo "SHORT_SHA: $SHORT_SHA"   # -> overwritten
+
+  # ===========================================================================
+  # Example 6: Configuration variables (vars.*) and secrets (secrets.*).
+  # Create them in: Settings > Secrets and variables > Actions.
+  # They are NOT environment variables until you map them with `env:`.
+  # ===========================================================================
+  vars-and-secrets:
+    runs-on: ubuntu-24.04
+    env:
+      # `||` provides a fallback when the variable is not defined in settings.
+      APP_REGION: ${{ vars.APP_REGION || 'eu-west-1' }}
+      # Secrets are masked as *** in logs. Missing secrets evaluate to ''.
+      API_TOKEN: ${{ secrets.API_TOKEN }}
+    steps:
+      - name: Use a configuration variable
+        run: |
+          echo "Deploying to region: $APP_REGION"
+
+      - name: Use a secret (never echo it!)
+        run: |
+          if [ -n "$API_TOKEN" ]; then
+            echo "API_TOKEN is set (length ${#API_TOKEN})"
+          else
+            echo "API_TOKEN is not configured - skipping"
+          fi
+          # Prefer passing secrets through env: rather than writing the
+          # secrets expression directly inside run: (avoids script injection).
+          # Note: expressions are evaluated even inside bash comments!
+
+  # ===========================================================================
+  # Example 7: Sharing a value between JOBS.
+  # $GITHUB_ENV stays inside one job, so use step outputs -> job outputs,
+  # then read them in the dependent job via `needs.<job>.outputs.<name>`.
+  # ===========================================================================
+  producer:
+    runs-on: ubuntu-24.04
+    # Expose a step output as a job output.
+    outputs:
+      version: ${{ steps.calc.outputs.version }}
+    steps:
+      - name: Calculate version
+        id: calc
+        run: echo "version=1.0.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+  consumer:
+    runs-on: ubuntu-24.04
+    needs: producer
+    env:
+      # Turn the upstream job output into an env var for this job.
+      APP_VERSION: ${{ needs.producer.outputs.version }}
+    steps:
+      - name: Read value from another job
+        run: |
+          echo "APP_VERSION from producer job: $APP_VERSION"
